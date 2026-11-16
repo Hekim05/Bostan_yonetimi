@@ -836,12 +836,14 @@ tbody tr:hover{background:var(--bg2)}tbody tr:last-child td{border-bottom:none}
       <div>
         <h2 style="font-family:'Fraunces',serif;font-size:20px;font-weight:500;color:var(--txt);margin:0">Kursiyer / Parsel Değerlendirme</h2>
         <p style="font-size:12px;color:var(--txtm);margin:4px 0 0">Puantörler tarafından ilgi, verim ve bakım değerlendirmesi</p>
+        <p class="degerBekleyenDurum" style="font-size:12px;margin:6px 0 0"></p>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btns" onclick="degerTamSayfa()">⛶ Tam Sayfa</button>
         <button class="btn btns" onclick="degerOnizleme()">👁 Ön İzleme</button>
         <button class="btn btns" onclick="degerYazdir()">⎙ Yazdır</button>
         <button class="btn btns" onclick="degerCSV()">↓ CSV</button>
+        <button class="btn btns" onclick="degerYerelYedekler()" title="Bu cihazdaki son 10 değerlendirme sürümü">⟲ Yerel Yedekler</button>
         <button class="btn btns" onclick="testVerisiYukle()" style="background:rgba(255,193,7,.12);border-color:rgba(255,193,7,.4);color:#ffc107">🧪 Test Verisi</button>
         <button class="btn btns" onclick="testVerisiSil()" style="background:rgba(200,112,96,.1);border-color:rgba(200,112,96,.3);color:var(--err)">🗑 Test Sil</button>
       </div>
@@ -888,7 +890,8 @@ tbody tr:hover{background:var(--bg2)}tbody tr:last-child td{border-bottom:none}
   <!-- Değerlendirme Tam Sayfa -->
   <div id="degerFullscreen" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:320;overflow:auto">
     <div style="padding:16px 20px;border-bottom:1px solid var(--brd);display:flex;justify-content:space-between;align-items:center;background:var(--surf);position:sticky;top:0;z-index:1">
-      <h3 style="font-family:'Fraunces',serif;font-size:18px;font-weight:500;color:var(--txt);margin:0">Kursiyer / Parsel Değerlendirme</h3>
+      <div><h3 style="font-family:'Fraunces',serif;font-size:18px;font-weight:500;color:var(--txt);margin:0">Kursiyer / Parsel Değerlendirme</h3>
+      <div class="degerBekleyenDurum" style="font-size:12px;margin-top:4px"></div></div>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn btns" onclick="degerOnizleme()">👁 Ön İzleme</button>
         <button class="btn btns" onclick="degerYazdir()">⎙ Yazdır</button>
@@ -1426,6 +1429,7 @@ function fbInit(){
     fbRef = fbDb.ref('kentbostanlari');
     fbBagli = true;
     fbDinle();
+    degerBaglantiIzle();
     fbDurumGoster('baglaniyor');
   } catch(e){ console.warn('Firebase init hatası:',e); fbDurumGoster('hata'); }
 }
@@ -1445,13 +1449,13 @@ function fbDinle(){
       if(d.cfg)       { cfg={...cfg,...d.cfg};  localStorage.setItem(SET_K, JSON.stringify(cfg)); }
       if(d.malz)      { malz=d.malz;            localStorage.setItem(MZ_K, JSON.stringify(malz)); }
       if(d.prsData)   { prsData=d.prsData;      localStorage.setItem(PRS_KEY, JSON.stringify(prsData)); }
-      if(d.degerData) { degerData=d.degerData;  localStorage.setItem(DEGER_KEY, JSON.stringify(degerData)); }
+      degerBuluttanUygula(d.degerData);
       if(d.gundemler) { gundemler=d.gundemler;  localStorage.setItem(GND_KEY, JSON.stringify(gundemler)); }
       if(d.karaListe) { karaListe=d.karaListe;  localStorage.setItem(KL_KEY, JSON.stringify(karaListe)); }
       if(d.takEtkinlikler) { takEtkinlikler=d.takEtkinlikler; localStorage.setItem(TAK_KEY, JSON.stringify(takEtkinlikler)); }
       if(d.customBostanlar&&Array.isArray(d.customBostanlar)){ customBostanlar=d.customBostanlar; localStorage.setItem('kbys_custom_bostanlar',JSON.stringify(customBostanlar)); try{initAllCustomBostanlar();}catch(ex){} }
-      renderAll();
-      toast('☁ Veriler güncellendi (başka kullanıcı)','info');
+      degerOdakKoru(renderAll);
+      if(Date.now()-_degerSonYazim>2500) toast('☁ Veriler güncellendi (başka kullanıcı)','info');
     } catch(e){ console.warn('fbDinle hata:',e); }
   }, err=>{ fbDurumGoster('hata'); console.warn('Firebase dinle hata:',err); });
 }
@@ -1464,10 +1468,10 @@ function fbKaydet(){
     try{
       _fbSelfWrite=true;
       const payload={
-        recs, cfg, malz, prsData, degerData, gundemler, karaListe, takEtkinlikler,
+        recs, cfg, malz, prsData, gundemler, karaListe, takEtkinlikler,
         customBostanlar: typeof customBostanlar!=='undefined'?customBostanlar:[],
         sonGuncelleme: new Date().toISOString()
-      };
+      }; // degerData burada YOK: puanlar hücre hücre ayrı yazılır, başka cihazın eski verisi silemez
       // Koruma: takEtkinlikler boşsa Firebase'deki mevcut veriyi silme
       if(!takEtkinlikler||takEtkinlikler.length===0){
         fbRef.child('takEtkinlikler').once('value').then(snap=>{
@@ -1478,14 +1482,14 @@ function fbKaydet(){
             localStorage.setItem(TAK_KEY,JSON.stringify(takEtkinlikler));
             console.log('fbKaydet: Firebase takvim verisi korundu (',takEtkinlikler.length,'etkinlik)');
           }
-          fbRef.set(payload).then(()=>fbDurumGoster('bagli'))
+          fbRef.update(payload).then(()=>fbDurumGoster('bagli'))
             .catch(e=>{ fbDurumGoster('hata'); console.warn('fbKaydet hata:',e); });
         }).catch(()=>{
-          fbRef.set(payload).then(()=>fbDurumGoster('bagli'))
+          fbRef.update(payload).then(()=>fbDurumGoster('bagli'))
             .catch(e=>{ fbDurumGoster('hata'); console.warn('fbKaydet hata:',e); });
         });
       } else {
-        fbRef.set(payload).then(()=>fbDurumGoster('bagli'))
+        fbRef.update(payload).then(()=>fbDurumGoster('bagli'))
           .catch(e=>{ fbDurumGoster('hata'); console.warn('fbKaydet hata:',e); });
       }
     } catch(e){ fbDurumGoster('hata'); }
@@ -1512,8 +1516,9 @@ function fbAcilYukle(){
   if(el) el.innerHTML='<span style="color:#ffd600">⏳ Gönderiliyor…</span>';
   clearTimeout(_fbDebTimer);
   _fbSelfWrite=true;
-  fbRef.set({
-    recs, cfg, malz, prsData, degerData, gundemler, karaListe, takEtkinlikler,
+  degerBekleyenGonder();
+  fbRef.update({
+    recs, cfg, malz, prsData, gundemler, karaListe, takEtkinlikler,
     customBostanlar: typeof customBostanlar!=='undefined'?customBostanlar:[],
     sonGuncelleme: new Date().toISOString()
   }).then(()=>{
@@ -1543,7 +1548,7 @@ function fbAcilCek(){
     if(d.cfg){cfg={...cfg,...d.cfg};localStorage.setItem(SET_K,JSON.stringify(cfg));}
     if(d.malz){malz=d.malz;localStorage.setItem(MZ_K,JSON.stringify(malz));}
     if(d.prsData){prsData=d.prsData;localStorage.setItem(PRS_KEY,JSON.stringify(prsData));}
-    if(d.degerData){degerData=d.degerData;localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));}
+    degerBuluttanUygula(d.degerData);
     if(d.gundemler){gundemler=d.gundemler;localStorage.setItem(GND_KEY,JSON.stringify(gundemler));}
     if(d.karaListe){karaListe=d.karaListe;localStorage.setItem(KL_KEY,JSON.stringify(karaListe));}
     if(d.takEtkinlikler){takEtkinlikler=d.takEtkinlikler;localStorage.setItem(TAK_KEY,JSON.stringify(takEtkinlikler));}
@@ -1619,7 +1624,7 @@ function fbYukle(){
     if(d.cfg)       { cfg={...cfg,...d.cfg};  localStorage.setItem(SET_K, JSON.stringify(cfg)); }
     if(d.malz)      { malz=d.malz;            localStorage.setItem(MZ_K, JSON.stringify(malz)); }
     if(d.prsData)   { prsData=d.prsData;      localStorage.setItem(PRS_KEY, JSON.stringify(prsData)); }
-    if(d.degerData) { degerData=d.degerData;  localStorage.setItem(DEGER_KEY, JSON.stringify(degerData)); }
+    degerBuluttanUygula(d.degerData);
     if(d.gundemler) { gundemler=d.gundemler;  localStorage.setItem(GND_KEY, JSON.stringify(gundemler)); }
     if(d.karaListe) { karaListe=d.karaListe;  localStorage.setItem(KL_KEY, JSON.stringify(karaListe)); }
     if(d.takEtkinlikler) { takEtkinlikler=d.takEtkinlikler; localStorage.setItem(TAK_KEY, JSON.stringify(takEtkinlikler)); }
@@ -2906,7 +2911,7 @@ function importJSON(ev){
       const arr=d.recs||d.records;
       if(!arr||!Array.isArray(arr)){toast('Geçersiz yedek.','error');return;}
       if(!confirm(`${arr.length} kayıt yüklenecek. Mevcut veriler silinecek. Devam?`))return;
-      recs=arr;if(d.cfg)cfg={...cfg,...d.cfg};else if(d.settings)cfg={...cfg,...d.settings};if(d.malz)malz=d.malz;if(d.prsData)prsData=d.prsData;if(d.degerData){degerData=d.degerData;localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));}
+      recs=arr;if(d.cfg)cfg={...cfg,...d.cfg};else if(d.settings)cfg={...cfg,...d.settings};if(d.malz)malz=d.malz;if(d.prsData)prsData=d.prsData;if(d.degerData){const n=degerYedektenDoldur(d.degerData);if(n)toast(n+' puan yedekten eklendi.','info');}
       saveData();
       // Firebase'e de hemen gönder
       setTimeout(fbAcilYukle, 1000);
@@ -4917,26 +4922,186 @@ function testVerisiSil(){
     Object.keys(bData).forEach(k=>{if(k.startsWith('TEST_'))delete bData[k];});
   });
   try{saveData();}catch(e){}
-  try{saveDeger();}catch(e){}
+  Object.keys(degerBekleyen).forEach(k=>{if(degerBekleyen[k].recId.startsWith('TEST_'))delete degerBekleyen[k];});
+  degerBekleyenKaydet();
+  try{saveDegerTam();}catch(e){}
   try{renderAll();}catch(e){}
   try{renderDegerTablo();}catch(e){}
   toast((once-recs.length)+' test kaydı silindi.','info');
 }
 function loadDeger(){
   try{const d=localStorage.getItem(DEGER_KEY);if(d)degerData=JSON.parse(d);}catch(e){}
-  if(!degerData.puantorler||!degerData.puantorler.length)degerData.puantorler=['Puantör 1','Puantör 2'];
-  if(!degerData.puanlar)degerData.puanlar={};
+  degerData=degerNormalize(degerData);
+  // Gönderilmemiş puanlar yerel veride de olsun
+  Object.values(degerBekleyen).forEach(b=>degerHucreYaz(degerData,b.ak,b.recId,b.konu,b.pIdx,b.val));
   renderPuantorler();
   renderDegerTablo();
+  degerBekleyenGoster();
 }
+// Yalnızca puantör listesini buluta yazar (puanlara dokunmaz)
 function saveDeger(){
   localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));
-  fbKaydet();
+  if(fbBagli&&fbDb){_fbSelfWrite=true;fbDb.ref('kentbostanlari/degerData/puantorler').set(degerData.puantorler).catch(e=>console.warn('puantör yazılamadı',e));}
+}
+// Tüm değerlendirme verisini yazar — yalnız puantör silme gibi yapısal değişikliklerde
+function saveDegerTam(){
+  degerYedekAl('tam yazım öncesi');
+  localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));
+  if(fbBagli&&fbDb){_fbSelfWrite=true;fbDb.ref('kentbostanlari/degerData').set(degerData).catch(e=>console.warn('değerlendirme yazılamadı',e));}
 }
 function degerAnahtar(){
   const b=(document.getElementById('degerBostan')?.value)||'Mutlukent';
   const y=(document.getElementById('degerYil')?.value)||'2026';
   return b+'_'+y;
+}
+
+/* ── Güvenli puan kaydı ──────────────────────────────────────────
+   Her puan buluta tek hücre olarak yazılır. İnternet yoksa puan cihazda
+   "bekleyen" listesinde saklanır (sayfa kapansa da kaybolmaz) ve bağlantı
+   gelince otomatik gönderilir. Buluttan gelen veri yereli ezmez: bulut
+   esas alınır, gönderilmemiş yerel puanlar üstüne eklenir. */
+const DEGER_PEND_KEY='cankaya_deger_bekleyen_v1';
+const DEGER_YEDEK_KEY='cankaya_deger_yedekler_v1';
+let degerBekleyen={};
+try{const d=localStorage.getItem(DEGER_PEND_KEY);if(d)degerBekleyen=JSON.parse(d)||{};}catch(e){}
+const _degerGonderimde=new Set();
+let _degerSonYazim=0, _fbCevrimici=false;
+
+function degerArr(x){
+  if(Array.isArray(x))return Array.from(x,v=>(v===undefined?null:v));
+  if(x&&typeof x==='object'){const a=[];Object.keys(x).forEach(k=>{const i=parseInt(k,10);if(!isNaN(i)){while(a.length<=i)a.push(null);a[i]=x[k];}});return a;}
+  return [];
+}
+function degerNormalize(d){
+  d=(d&&typeof d==='object')?d:{};
+  let p=d.puantorler;
+  if(!Array.isArray(p))p=(p&&typeof p==='object')?Object.values(p):[];
+  p=p.filter(x=>x!==null&&x!==undefined);
+  if(!p.length)p=['Puantör 1','Puantör 2'];
+  const puanlar={};
+  Object.entries(d.puanlar||{}).forEach(([ak,b])=>{
+    puanlar[ak]={};
+    Object.entries(b||{}).forEach(([rid,rd])=>{
+      puanlar[ak][rid]={ilgi:degerArr(rd&&rd.ilgi),verim:degerArr(rd&&rd.verim),bakim:degerArr(rd&&rd.bakim)};
+    });
+  });
+  return {...d,puantorler:p,puanlar};
+}
+function degerHucreYaz(o,ak,recId,konu,pIdx,val){
+  if(!o.puanlar[ak])o.puanlar[ak]={};
+  if(!o.puanlar[ak][recId])o.puanlar[ak][recId]={ilgi:[],verim:[],bakim:[]};
+  const r=o.puanlar[ak][recId];
+  if(!Array.isArray(r[konu]))r[konu]=degerArr(r[konu]);
+  while(r[konu].length<=pIdx)r[konu].push(null);
+  r[konu][pIdx]=val;
+}
+function degerPuanSay(o){
+  let n=0;
+  Object.values((o&&o.puanlar)||{}).forEach(b=>Object.values(b||{}).forEach(rd=>
+    ['ilgi','verim','bakim'].forEach(k=>degerArr(rd&&rd[k]).forEach(v=>{if(v!==null)n++;}))));
+  return n;
+}
+// Cihazda son 10 sürümü saklar (buluttan güncelleme / tam yazım öncesi)
+function degerYedekAl(neden){
+  try{
+    if(!degerPuanSay(degerData))return;
+    let y=[];try{y=JSON.parse(localStorage.getItem(DEGER_YEDEK_KEY)||'[]');}catch(e){}
+    const v=JSON.stringify(degerData);
+    if(y.length&&y[0].veri===v)return;
+    y.unshift({t:new Date().toISOString(),neden,puan:degerPuanSay(degerData),veri:v});
+    localStorage.setItem(DEGER_YEDEK_KEY,JSON.stringify(y.slice(0,10)));
+  }catch(e){console.warn('degerYedekAl',e);}
+}
+function degerBuluttanUygula(bulut){
+  if(!bulut){
+    // Bulutta değerlendirme yoksa (ilk kullanım) yereli yükle
+    if(degerPuanSay(degerData)&&fbBagli&&fbDb)fbDb.ref('kentbostanlari/degerData').set(degerData).catch(()=>{});
+    return;
+  }
+  degerYedekAl('buluttan güncelleme öncesi');
+  const yeni=degerNormalize(bulut);
+  Object.values(degerBekleyen).forEach(b=>degerHucreYaz(yeni,b.ak,b.recId,b.konu,b.pIdx,b.val));
+  degerData=yeni;
+  localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));
+  if(Object.keys(degerBekleyen).length)setTimeout(degerBekleyenGonder,0);
+}
+function degerBekleyenKaydet(){
+  try{localStorage.setItem(DEGER_PEND_KEY,JSON.stringify(degerBekleyen));}catch(e){}
+  degerBekleyenGoster();
+}
+function degerBekleyenGonder(){
+  if(!fbBagli||!fbDb)return;
+  Object.entries(degerBekleyen).forEach(([key,b])=>{
+    if(_degerGonderimde.has(key))return;
+    _degerGonderimde.add(key);
+    const t=b.t;
+    fbDb.ref(`kentbostanlari/degerData/puanlar/${b.ak}/${b.recId}/${b.konu}/${b.pIdx}`).set(b.val)
+      .then(()=>{
+        _degerGonderimde.delete(key);
+        if(degerBekleyen[key]&&degerBekleyen[key].t===t)delete degerBekleyen[key];
+        degerBekleyenKaydet();
+        if(degerBekleyen[key])degerBekleyenGonder(); // bu arada değer değiştiyse yenisini gönder
+      })
+      .catch(e=>{_degerGonderimde.delete(key);console.warn('Puan gönderilemedi:',e);degerBekleyenGoster();});
+  });
+  degerBekleyenGoster();
+}
+function degerBekleyenGoster(){
+  const n=Object.keys(degerBekleyen).length;
+  const html=n
+    ? `<span style="color:#ffb300">⚠ ${n} puan henüz buluta gitmedi${_fbCevrimici?' — gönderiliyor…':' — internet yok, cihazda saklı, bağlantı gelince otomatik gidecek'}</span>`
+    : `<span style="color:#8fb87a">✓ Tüm puanlar bulutta</span>`;
+  document.querySelectorAll('.degerBekleyenDurum').forEach(el=>el.innerHTML=html);
+}
+function degerPuanGir(recId,konu,pIdx,val){
+  const ak=degerAnahtar();
+  const n=parseFloat(String(val).replace(',','.'));
+  const v=isNaN(n)?null:Math.max(0,Math.min(10,n));
+  degerHucreYaz(degerData,ak,recId,konu,pIdx,v);
+  localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));
+  degerBekleyen[[ak,recId,konu,pIdx].join('|')]={ak,recId,konu,pIdx,val:v,t:Date.now()};
+  degerBekleyenKaydet();
+  _degerSonYazim=Date.now();
+  degerBekleyenGonder();
+  renderDegerOrtalamalar(recId);
+}
+// Bir yedekteki puanları yalnızca BOŞ hücrelere ekler (kimsenin girdiğini ezmez)
+function degerYedektenDoldur(kaynak){
+  const k=degerNormalize(kaynak);let n=0;
+  Object.entries(k.puanlar).forEach(([ak,b])=>Object.entries(b).forEach(([rid,rd])=>
+    ['ilgi','verim','bakim'].forEach(konu=>rd[konu].forEach((v,pi)=>{
+      if(v===null)return;
+      const mevcut=(((degerData.puanlar[ak]||{})[rid]||{})[konu]||[])[pi];
+      if(mevcut!==null&&mevcut!==undefined)return;
+      degerHucreYaz(degerData,ak,rid,konu,pi,v);
+      degerBekleyen[[ak,rid,konu,pi].join('|')]={ak,recId:rid,konu,pIdx:pi,val:v,t:Date.now()};n++;
+    }))));
+  if(n){localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));degerBekleyenKaydet();degerBekleyenGonder();try{renderDegerTablo();}catch(e){}}
+  return n;
+}
+function degerYerelYedekler(){
+  let y=[];try{y=JSON.parse(localStorage.getItem(DEGER_YEDEK_KEY)||'[]');}catch(e){}
+  if(!y.length){alert('Bu cihazda değerlendirme yedeği yok.');return;}
+  const liste=y.map((x,i)=>`${i+1}) ${new Date(x.t).toLocaleString('tr-TR')} · ${x.puan} puan · ${x.neden}`).join('\n');
+  const sec=prompt('Bu cihazdaki değerlendirme yedekleri:\n\n'+liste+'\n\nGeri yüklenecek yedeğin numarasını yazın.\n(Yalnızca boş hücreler doldurulur, mevcut puanlar değişmez.)');
+  const i=parseInt(sec,10)-1;
+  if(isNaN(i)||!y[i])return;
+  const n=degerYedektenDoldur(JSON.parse(y[i].veri));
+  toast(n?`${n} puan yedekten geri yüklendi.`:'Eklenecek boş hücre bulunamadı.',n?'success':'info');
+}
+// Tabloyu yeniden çizerken, yazılan hücredeki odağı kaybetme
+function degerOdakKoru(fn){
+  const a=document.activeElement;
+  const imza=a&&a.tagName==='INPUT'&&a.closest&&a.closest('#degerTabloWrap')?a.getAttribute('onchange'):null;
+  fn();
+  if(imza){const b=[...document.querySelectorAll('#degerTabloWrap input')].find(x=>x.getAttribute('onchange')===imza);if(b)b.focus();}
+}
+function degerBaglantiIzle(){
+  if(!fbDb)return;
+  fbDb.ref('.info/connected').on('value',s=>{
+    _fbCevrimici=!!s.val();
+    if(_fbCevrimici)degerBekleyenGonder();else degerBekleyenGoster();
+  });
 }
 function renderPuantorler(){
   const el=document.getElementById('degerPuantorler');if(!el)return;
@@ -4960,23 +5125,11 @@ function puantorSil(i){
       ['ilgi','verim','bakim'].forEach(k=>{if(rData[k])rData[k].splice(i,1);});
     });
   });
-  saveDeger();renderPuantorler();renderDegerTablo();
+  saveDegerTam();renderPuantorler();renderDegerTablo();
 }
 function puantorGuncelle(i,val){
   degerData.puantorler[i]=val.trim()||('Puantör '+(i+1));
   saveDeger();renderPuantorler();
-}
-function degerPuanGir(recId,konu,pIdx,val){
-  const ak=degerAnahtar();
-  if(!degerData.puanlar[ak])degerData.puanlar[ak]={};
-  if(!degerData.puanlar[ak][recId])degerData.puanlar[ak][recId]={ilgi:[],verim:[],bakim:[]};
-  const arr=degerData.puanlar[ak][recId][konu];
-  while(arr.length<=pIdx)arr.push(null);
-  const n=parseFloat(val);
-  arr[pIdx]=(isNaN(n)?null:Math.max(0,Math.min(10,n)));
-  saveDeger();
-  // ortalama güncelle
-  renderDegerOrtalamalar(recId);
 }
 function degerOrt(arr){
   const valid=arr.filter(v=>v!==null&&v!==undefined);
@@ -4988,13 +5141,11 @@ function renderDegerOrtalamalar(recId){
   const rd=(degerData.puanlar[ak]||{})[recId]||{ilgi:[],verim:[],bakim:[]};
   ['ilgi','verim','bakim'].forEach(k=>{
     const ort=degerOrt(rd[k]||[]);
-    const el=document.getElementById('dort_'+recId+'_'+k);
-    if(el)el.textContent=ort!==null?ort.toFixed(1):'—';
+    document.querySelectorAll(`[id="dort_${recId}_${k}"]`).forEach(el=>el.textContent=ort!==null?ort.toFixed(1):'—');
   });
   const konuOrtlar=['ilgi','verim','bakim'].map(k=>degerOrt(rd[k]||[])).filter(v=>v!==null);
   const genel=konuOrtlar.length?konuOrtlar.reduce((s,v)=>s+v,0)/konuOrtlar.length:null;
-  const gel=document.getElementById('dgort_'+recId);
-  if(gel)gel.textContent=genel!==null?genel.toFixed(1):'—';
+  document.querySelectorAll(`[id="dgort_${recId}"]`).forEach(gel=>gel.textContent=genel!==null?genel.toFixed(1):'—');
 }
 function renderDegerTablo(){
   const wrap=document.getElementById('degerTabloWrap');if(!wrap)return;
@@ -5152,6 +5303,7 @@ function degerTamSayfa(){
 }
 function degerTamSayfaKapat(){
   document.getElementById('degerFullscreen').style.display='none';
+  try{renderDegerTablo();}catch(e){}
 }
 function renderDegerTabloFS(){
   const wrap=document.getElementById('degerTabloWrapFS');if(!wrap)return;
