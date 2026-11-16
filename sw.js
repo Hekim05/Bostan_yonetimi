@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kbys-v5';
+const CACHE_NAME = 'kbys-v6';
 const STATIC_ASSETS = [
   'index.html',
   'manifest.json'

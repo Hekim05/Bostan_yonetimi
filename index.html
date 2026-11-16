@@ -873,6 +873,10 @@ tbody tr:hover{background:var(--bg2)}tbody tr:last-child td{border-bottom:none}
     </div>
 
     <!-- Tablo -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <button onpointerdown="event.preventDefault();degerElleKaydet()" onclick="if(event.detail===0)degerElleKaydet()" style="background:#2e7d32;border:1px solid #43a047;color:#fff;border-radius:var(--r);padding:10px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">💾 Kaydet</button>
+      <span class="degerSonKayit" style="font-size:12px;color:var(--txtm)">Puanlar cihaza otomatik da kaydedilir; ara ara Kaydet'e basmak son yazdığınız hücreyi de güvenceye alır.</span>
+    </div>
     <div id="degerTabloWrap" style="overflow-x:auto;border:1px solid var(--brd);border-radius:var(--rl)"></div>
   </div>
 
@@ -922,7 +926,11 @@ tbody tr:hover{background:var(--bg2)}tbody tr:last-child td{border-bottom:none}
         <button class="btn btns" onclick="testVerisiYukle()" style="background:rgba(255,193,7,.12);border-color:rgba(255,193,7,.4);color:#ffc107">🧪 Test</button>
         <button class="btn btns" onclick="testVerisiSil()" style="background:rgba(200,112,96,.1);border-color:rgba(200,112,96,.3);color:var(--err)">🗑 Sil</button>
       </div>
-      <div id="degerTabloWrapFS" style="overflow-x:auto;border:1px solid var(--brd);border-radius:var(--rl)"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <button onpointerdown="event.preventDefault();degerElleKaydet()" onclick="if(event.detail===0)degerElleKaydet()" style="background:#2e7d32;border:1px solid #43a047;color:#fff;border-radius:var(--r);padding:10px 22px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit">💾 Kaydet</button>
+      <span class="degerSonKayit" style="font-size:12px;color:var(--txtm)">Puanlar cihaza otomatik da kaydedilir; ara ara Kaydet'e basmak son yazdığınız hücreyi de güvenceye alır.</span>
+    </div>
+    <div id="degerTabloWrapFS" style="overflow-x:auto;border:1px solid var(--brd);border-radius:var(--rl)"></div>
     </div>
   </div>
 
@@ -5002,12 +5010,12 @@ function degerPuanSay(o){
   return n;
 }
 // Cihazda son 10 sürümü saklar (buluttan güncelleme / tam yazım öncesi)
-function degerYedekAl(neden){
+function degerYedekAl(neden,zorla){
   try{
     if(!degerPuanSay(degerData))return;
     let y=[];try{y=JSON.parse(localStorage.getItem(DEGER_YEDEK_KEY)||'[]');}catch(e){}
     const v=JSON.stringify(degerData);
-    if(y.length&&y[0].veri===v)return;
+    if(!zorla&&y.length&&y[0].veri===v)return;
     y.unshift({t:new Date().toISOString(),neden,puan:degerPuanSay(degerData),veri:v});
     localStorage.setItem(DEGER_YEDEK_KEY,JSON.stringify(y.slice(0,10)));
   }catch(e){console.warn('degerYedekAl',e);}
@@ -5095,6 +5103,24 @@ function degerOdakKoru(fn){
   const imza=a&&a.tagName==='INPUT'&&a.closest&&a.closest('#degerTabloWrap')?a.getAttribute('onchange'):null;
   fn();
   if(imza){const b=[...document.querySelectorAll('#degerTabloWrap input')].find(x=>x.getAttribute('onchange')===imza);if(b)b.focus();}
+}
+// Elle kaydet: açık hücreyi kapatır, cihaza kaydeder, cihazda yedek alır, buluta göndermeyi dener
+function degerElleKaydet(){
+  const a=document.activeElement;
+  if(a&&a.tagName==='INPUT'&&a.closest&&(a.closest('#degerTabloWrap')||a.closest('#degerTabloWrapFS'))){
+    a.dispatchEvent(new Event('change',{bubbles:true}));a.blur();
+  }
+  try{
+    localStorage.setItem(DEGER_KEY,JSON.stringify(degerData));
+    localStorage.setItem(DEGER_PEND_KEY,JSON.stringify(degerBekleyen));
+    degerYedekAl('elle kayıt',true);
+  }catch(e){toast('Cihaza kaydedilemedi: '+e.message,'error');return;}
+  degerBekleyenGonder();
+  const n=Object.keys(degerBekleyen).length;
+  const saat=new Date().toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
+  const msg=n?`💾 ${saat} — cihaza kaydedildi. ${n} puan internet gelince buluta gidecek.`:`💾 ${saat} — kaydedildi, tüm puanlar bulutta.`;
+  document.querySelectorAll('.degerSonKayit').forEach(el=>{el.textContent=msg;el.style.color=n?'#ffb300':'#8fb87a';});
+  toast(msg,n?'warn':'success');
 }
 function degerBaglantiIzle(){
   if(!fbDb)return;
